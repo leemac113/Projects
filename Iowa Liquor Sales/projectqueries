@@ -1,0 +1,501 @@
+/*****************************
+1. BUSINESS QUESTIONS
+******************************/
+/* a) Which types of liquor sell best (i.e. which have the largest shares in terms of number of sales and revenue from sales)?
+   b) Are there types of liquor that sell less in number but produce more revenue?
+   c) Should our marketing campaign be focused in smaller markets or larger ones?  In ones where a liquor's market share is already highest, or one where it isn't but could be?
+   d) Is there a time of year when it is best to market our product?
+   e) Which brands/vendors should we partner with? */
+
+/******************************************
+2. PRELIMINARY LOOK AT DATA (before e-mail)
+*******************************************/
+SELECT DISTINCT (category_name), COUNT(*)
+FROM sales
+GROUP BY category_name
+ORDER BY COUNT(*) DESC;
+
+/* It would appear that the majority of the best selling categories are vodkas and whiskies. */
+
+SELECT a.name, COUNT(s.item)
+FROM stores a
+INNER JOIN sales s ON a.store = s.store
+GROUP BY a.name
+ORDER BY COUNT(*) DESC;
+
+/* Almost all the stores with the most sales are a chain called Hy-Vee. */
+
+SELECT county, SUM(total)
+FROM sales
+GROUP BY 1
+ORDER BY 2 DESC;
+
+/* The vast majority of money being made is in Polk County, which contains the population center Des Moines. */
+
+/*********************************************************************
+3. DATA CLEANING- Analysis of what would need to be cleaned to be used
+**********************************************************************/
+SELECT *
+FROM products
+WHERE category_name IS NULL; /* Tested in this way for NULL values throughout the four tables, and found the following:
+
+Stores:
+-no NULLs except most of the address_info (but those are just for PO Boxes)
+
+Products:  
+-age is always NULL, and some in upc and scc but those don’t factor into the analysis
+-8 with missing prices shelf_price, bottle_price, case_cost
+-117 category_name NULLs
+
+Sales:
+-convenience_store is either Y or NULL
+-1719 where county is NULL (county_number is 0 in those instances), 383 category_name NULL (29 of which category is NULL as well) (decided these were negligible), vendor is NULL 62 times (all for vendor_no 239, Russian Standard Vodka USA)
+*/
+
+SELECT p.item_no, p.bottle_price, p.shelf_price, p.case_cost, s.state_btl_cost, s.btl_price
+FROM products p
+INNER JOIN sales s
+ON p.item_no=s.item
+WHERE p.shelf_price IS NULL; 
+/* Checked to see if the missing prices from Products were in the Sales table, but there were no matches, so will leave blank. */
+
+SELECT p.category_name, s.category_name, s.item
+FROM products p
+INNER JOIN sales s
+ON p.item_no=s.item
+WHERE p.category_name IS NULL;
+/* Checked to see if the missing category names from Products were in Sales, and while there were matches, those were null values in the Sales table as well. */
+
+SELECT DISTINCT(store)
+FROM sales
+WHERE county IS NULL
+ORDER BY store;
+/* For the NULL counties (and county numbers of 0) in Sales, discovered there were only 13 distinct stores that had the issue, all of which were in the Sales table in some places with county and county number, so I could impute the values as below. */
+
+SELECT *, 
+CASE WHEN store = 5021 THEN 'Dickinson' 
+WHEN (store = 5022 OR store = 5032) THEN 'Polk' 
+WHEN (store = 5023 OR store = 5025 OR store = 5036) THEN 'Linn'
+WHEN store = 5026 THEN 'Grundy' WHEN store = 5027 THEN 'Woodbury' WHEN store = 5028 THEN 'Buena Vista' WHEN store = 5029 THEN 'Scott'
+WHEN (store = 5030 OR store = 5031) THEN 'Black Hawk'
+WHEN store = 5034 THEN 'Cerro Gordo' ELSE county END, 
+CASE WHEN store = 5021 THEN '30' 
+WHEN (store = 5022 OR store = 5032) THEN '77' 
+WHEN (store = 5023 OR store = 5025 OR store = 5036) THEN '57'
+WHEN store = 5026 THEN '38' WHEN store = 5027 THEN '97' WHEN store = 5028 THEN '11' WHEN store = 5029 THEN '82'
+WHEN (store = 5030 OR store = 5031) THEN '7'
+WHEN store = 5034 THEN '17' ELSE county_number END
+FROM sales
+WHERE county is NULL;
+/*This put the county values in place of the county NULL values (parameters can be edited as necessary, but always have to filter the Sales table because of its size). */
+
+SELECT *, CASE WHEN vendor_no = '239' THEN 'Russian Standard Vodka USA' ELSE vendor END
+FROM sales
+WHERE category_name = 'IMPORTED VODKA'
+LIMIT 1000;
+
+/* This corrects all the NULL values for vendor in the Sales table */
+
+SELECT *, CAST (shelf_price AS money), CAST (case_cost AS money)
+FROM products;
+
+SELECT *, CAST (total AS money)
+FROM sales
+LIMIT 1000;
+
+/* Would want the money columns standardized as money, though I would end up doing this in Excel as needed. */
+
+/********************************************************************
+4. CONDENSING ALCOHOL CATEGORIES- There are too many tiny subcategories
+of alcohol to be properly analyzed (68 in Sales, 70 in Products), so I 
+condensed them down into the following:
+
+a) Beer
+b) Brandy
+c) Cocktail
+d) Gin
+e) Liqueur
+f) Rum
+g) Schnapps
+h) Tequila
+i) Vodka
+j) Whiskey
+k) Other
+
+*********************************************************************/
+
+SELECT category_name, COUNT(*)
+FROM sales
+GROUP BY category_name
+ORDER BY COUNT(*) DESC;
+
+SELECT category_name, COUNT(*)
+FROM products
+GROUP BY category_name
+ORDER BY COUNT(*) DESC;
+
+/* 68 non-NULL alcohol categories sold, 70 listed in Products */
+
+SELECT *, CASE
+WHEN (category_name LIKE '%BEER' OR category_name LIKE '%ALE%') THEN 'BEER'
+WHEN category_name LIKE '%VODKA%' THEN 'VODKA'
+WHEN category_name LIKE '%TEQUILA%' THEN 'TEQUILA'
+WHEN category_name LIKE '%COCKTAIL%' THEN 'COCKTAIL'
+WHEN category_name LIKE '%RUM%' THEN 'RUM'
+WHEN category_name LIKE '% GIN%' THEN 'GIN'
+WHEN category_name LIKE '%BRAND%' THEN 'BRANDY'
+WHEN category_name LIKE '%SCHNAPPS%' THEN 'SCHNAPPS'
+WHEN (category_name LIKE '%WHISK%' OR category_name LIKE '%SCOTCH%' OR category_name LIKE '%BOURBON%') THEN 'WHISKEY'
+WHEN (category_name LIKE '%LIQUEUR%' OR category_name LIKE '%AMARETTO%' OR category_name LIKE '%TRIPLE%' OR category_name LIKE '%CREME%' OR category_name LIKE '%ANISET%' OR category_name LIKE '%ROCK%') THEN 'LIQUEUR'
+ELSE 'OTHER' END AS Liquor_Type
+FROM products;
+
+/* Can do this with Sales table as well.  Note on Gin category-- had to make it '% GIN%' to deal with Virgin Islands Rum.  Note on Beer category-- had to do '%BEER' so as not to include Root Beer Schnapps. */
+
+/**************************
+5. LIMITATIONS/ASSUMPTIONS
+***************************/
+/* a) 8 products missing prices
+   b) 117 products missing category names
+   c) 383 sales without category names
+   d) (Most crucial) For alcohol sorting, 'Decanters & Specialty Packages' and 'Distilled Spirits Specialty' categories cover all sorts of alcohols, and had to be sorted into 'Other' despite there being 874 and 106 (respectively) different examples in Products.  The assumption is that it won't throw off the numbers too much to not include them (a fair assumption after discovering that this entire 'Other' category only makes up 1.4% of sales. 
+   e) Final Disclaimer- see #8 at bottom. */
+
+/******************
+6. TABLE SUMMARIES
+*******************/
+/* i) COUNTIES */
+
+SELECT county, population, CAST(population as FLOAT)/(SELECT SUM (population) AS total_pop
+FROM counties) AS percent_pop
+FROM counties
+ORDER BY percent_pop DESC;
+
+SELECT SUM(percent_pop)
+FROM (SELECT county, population, CAST(population as FLOAT)/(SELECT SUM (population) AS total_pop
+FROM counties) AS percent_pop
+FROM counties
+ORDER BY percent_pop DESC
+LIMIT 10) as Top_10_Counties;
+
+/* There are 99 counties in Iowa, with approximately 21% of the population living in the top two (Polk and Linn, whose population centers are Des Moines and Cedar Rapids), and approximately 50% in the Top 10. */
+
+/* ii) STORES */
+
+SELECT *
+FROM stores
+ORDER BY store_status;
+
+/* There are 1973 stores in the analysis, 1425 of which (72.2%) are active. */
+
+/* iii) PRODUCTS */
+
+SELECT COUNT(*)
+FROM products;
+
+/* There are 9977 products. */
+
+SELECT liquor_type, COUNT (*), CAST(COUNT(*) AS float)/(SELECT COUNT(*) FROM products) AS percent_liquor_products
+FROM
+(SELECT *, CASE
+WHEN (category_name LIKE '%BEER' OR category_name LIKE '%ALE%') THEN 'BEER'
+WHEN category_name LIKE '%VODKA%' THEN 'VODKA'
+WHEN category_name LIKE '%TEQUILA%' THEN 'TEQUILA'
+WHEN category_name LIKE '%COCKTAIL%' THEN 'COCKTAIL'
+WHEN category_name LIKE '%RUM%' THEN 'RUM'
+WHEN category_name LIKE '% GIN%' THEN 'GIN'
+WHEN category_name LIKE '%BRAND%' THEN 'BRANDY'
+WHEN category_name LIKE '%SCHNAPPS%' THEN 'SCHNAPPS'
+WHEN (category_name LIKE '%WHISK%' OR category_name LIKE '%SCOTCH%' OR category_name LIKE '%BOURBON%') THEN 'WHISKEY'
+WHEN (category_name LIKE '%LIQUEUR%' OR category_name LIKE '%AMARETTO%' OR category_name LIKE '%TRIPLE%' OR category_name LIKE '%CREME%' OR category_name LIKE '%ANISET%' OR category_name LIKE '%ROCK%') THEN 'LIQUEUR'
+ELSE 'OTHER' END AS Liquor_Type
+FROM products) AS liquor_type_table
+GROUP BY liquor_type
+ORDER BY 2 DESC;
+
+/* The leading numbers of individual manufactured products are whiskey at 20.4% and vodka at 16.8%, while gin is the lowest at 2.8%. 
+Rankings:
+1. Whiskey (20.4%)
+2. Vodka (16.8%)
+3. Liqueur (12.7%)
+4. Other (11.2%)
+5. Beer (7.7%)
+6. Rum (7.5%)
+7. Brandy (5.7%)
+8. Tequila (5.7%)
+9. Schnapps (5.1%)
+10. Cocktail (4.3%)
+11. Gin (2.8%) */
+
+/* iv) SALES */
+
+SELECT COUNT(*)
+FROM sales;
+
+/* There are 3049913 sales. */
+
+SELECT liquor_type, COUNT (*), CAST(COUNT(*) AS float)/(SELECT COUNT(*) FROM sales) AS percent_liquor_sales
+FROM
+(SELECT *, CASE
+WHEN (category_name LIKE '%BEER' OR category_name LIKE '%ALE%') THEN 'BEER'
+WHEN category_name LIKE '%VODKA%' THEN 'VODKA'
+WHEN category_name LIKE '%TEQUILA%' THEN 'TEQUILA'
+WHEN category_name LIKE '%COCKTAIL%' THEN 'COCKTAIL'
+WHEN category_name LIKE '%RUM%' THEN 'RUM'
+WHEN category_name LIKE '% GIN%' THEN 'GIN'
+WHEN category_name LIKE '%BRAND%' THEN 'BRANDY'
+WHEN category_name LIKE '%SCHNAPPS%' THEN 'SCHNAPPS'
+WHEN (category_name LIKE '%WHISK%' OR category_name LIKE '%SCOTCH%' OR category_name LIKE '%BOURBON%') THEN 'WHISKEY'
+WHEN (category_name LIKE '%LIQUEUR%' OR category_name LIKE '%AMARETTO%' OR category_name LIKE '%TRIPLE%' OR category_name LIKE '%CREME%' OR category_name LIKE '%ANISET%' OR category_name LIKE '%ROCK%') THEN 'LIQUEUR'
+ELSE 'OTHER' END AS Liquor_Type
+FROM sales) AS liquor_type_table
+GROUP BY liquor_type
+ORDER BY 2 DESC;
+
+/* SALES SHARE TABLE-- 30.5% of sales were whiskey, 25.4% were vodka, 12.5% were rum, 8.4% were liqueur, and the remaining 7 categories made up the final 25%.
+Rankings:
+1. Whiskey (30.5%)
+2. Vodka (25.4%)
+3. Rum (12.5%)
+4. Liqueur (8.4%)
+5. Schnapps (5.6%)
+6. Brandy (5.4%)
+7. Tequila (4.4%)
+8. Gin (3.9%)
+9, Cocktail (2.7%)
+10. Other (1.4%)
+11. Beer (<.001%) */
+
+SELECT *, CAST(total_sales as float)/(SELECT SUM(total) FROM sales) AS percent_liquor_revenue
+FROM (SELECT liquor_type, COUNT (*) as sales_count, CAST(AVG(total) as money) as avg_sales, SUM(total) as total_sales
+FROM
+(SELECT *, CASE
+WHEN (category_name LIKE '%BEER' OR category_name LIKE '%ALE%') THEN 'BEER'
+WHEN category_name LIKE '%VODKA%' THEN 'VODKA'
+WHEN category_name LIKE '%TEQUILA%' THEN 'TEQUILA'
+WHEN category_name LIKE '%COCKTAIL%' THEN 'COCKTAIL'
+WHEN category_name LIKE '%RUM%' THEN 'RUM'
+WHEN category_name LIKE '% GIN%' THEN 'GIN'
+WHEN category_name LIKE '%BRAND%' THEN 'BRANDY'
+WHEN category_name LIKE '%SCHNAPPS%' THEN 'SCHNAPPS'
+WHEN (category_name LIKE '%WHISK%' OR category_name LIKE '%SCOTCH%' OR category_name LIKE '%BOURBON%') THEN 'WHISKEY'
+WHEN (category_name LIKE '%LIQUEUR%' OR category_name LIKE '%AMARETTO%' OR category_name LIKE '%TRIPLE%' OR category_name LIKE '%CREME%' OR category_name LIKE '%ANISET%' OR category_name LIKE '%ROCK%') THEN 'LIQUEUR'
+ELSE 'OTHER' END AS Liquor_Type
+FROM sales) AS liquor_type_table
+GROUP BY liquor_type) AS total_sales_table
+GROUP BY 1,2,3,4
+ORDER BY 5 DESC;
+
+/* REVENUE SHARE TABLE-- Average/total/percent total $ from sales by category
+
+Rankings:
+1. Whiskey (35.6%)
+2. Vodka (23.7%)
+3. Rum (13.5%)
+4. Liqueur (7.6%)
+5. Tequila (5.5%)
+6. Brandy (3.9%)
+7. Schnapps (3.8%)
+8. Gin (2.8%)
+9. Other (2.0%)
+10. Cocktail (1.6%)
+11. Beer (<.01%) */
+
+SELECT *, CAST(total_profit as float)/(SELECT CAST(SUM(state_btl_cost * bottle_qty) as numeric) FROM sales) AS percent_profit
+FROM (SELECT liquor_type, COUNT (*) as sales_count, SUM(total) - CAST(SUM(state_btl_cost * bottle_qty) as numeric) AS total_profit
+FROM
+(SELECT *, CASE
+WHEN (category_name LIKE '%BEER' OR category_name LIKE '%ALE%') THEN 'BEER'
+WHEN category_name LIKE '%VODKA%' THEN 'VODKA'
+WHEN category_name LIKE '%TEQUILA%' THEN 'TEQUILA'
+WHEN category_name LIKE '%COCKTAIL%' THEN 'COCKTAIL'
+WHEN category_name LIKE '%RUM%' THEN 'RUM'
+WHEN category_name LIKE '% GIN%' THEN 'GIN'
+WHEN category_name LIKE '%BRAND%' THEN 'BRANDY'
+WHEN category_name LIKE '%SCHNAPPS%' THEN 'SCHNAPPS'
+WHEN (category_name LIKE '%WHISK%' OR category_name LIKE '%SCOTCH%' OR category_name LIKE '%BOURBON%') THEN 'WHISKEY'
+WHEN (category_name LIKE '%LIQUEUR%' OR category_name LIKE '%AMARETTO%' OR category_name LIKE '%TRIPLE%' OR category_name LIKE '%CREME%' OR category_name LIKE '%ANISET%' OR category_name LIKE '%ROCK%') THEN 'LIQUEUR'
+ELSE 'OTHER' END AS Liquor_Type
+FROM sales) AS liquor_type_table
+GROUP BY liquor_type) AS total_profit_table
+GROUP BY 1, 2, 3
+ORDER BY 4 DESC;
+
+/* PROFIT TABLE-- Total/percent profit (total $ made - manufacturing cost (which I calculated as state_btl_cost * bottle_qty)) by category
+
+Rankings:
+1. Whiskey (17.9%)
+2. Vodka (11.9%)
+3. Rum (6.8%)
+4. Liqueur (3.8%)
+5. Tequila (2.7%)
+6. Brandy (1.9%)
+7. Schnapps (1.9%)
+8. Gin (1.4%)
+9. Other (1.0%)
+10. Cocktail (.8%)
+11. Beer (<.001%)
+
+Tested this to see if there was a major disparity between the amount of money made and the amount of profit that might influence what we're looking to market, and while the percentages are closer together, the proportions are similar enough that this doesn't need to be looked at further. */ 
+
+/* NOTE: A comparison between the SALES SHARE and REVENUE SHARE tables (visible here, but spelled out in Excel) shows that whiskey has the greatest positive difference between revenue and sales shares (5.13%, rum is in second at 1.09%), meaning it can make more money even with less sales. */
+
+/*******************************
+7. DEEPER COUNTY/SALES ANALYSIS
+********************************/
+
+SELECT *, (total_by_county/(SELECT SUM(total) FROM sales)) as county_share
+FROM (SELECT county, SUM(total) as total_by_county
+FROM sales
+GROUP BY 1) as s
+ORDER BY 3 DESC;
+
+/* A whopping 22% of sales revenue in the state comes from Polk County, and approximately 50% comes from the top 5 counties (Polk, Linn, Scott, Johnson, and Black Hawk). */
+
+/* NOTE: The following 5 are versions of the REVENUE SHARE TABLE. */
+
+SELECT *, CAST(total_sales as float)/(SELECT SUM(total) FROM sales WHERE county = 'Polk') AS percent_liquor_revenue
+FROM (SELECT liquor_type, COUNT (*) as sales_count, CAST(AVG(total) as money) as avg_sales, SUM(total) as total_sales
+FROM
+(SELECT *, CASE
+WHEN (category_name LIKE '%BEER' OR category_name LIKE '%ALE%') THEN 'BEER'
+WHEN category_name LIKE '%VODKA%' THEN 'VODKA'
+WHEN category_name LIKE '%TEQUILA%' THEN 'TEQUILA'
+WHEN category_name LIKE '%COCKTAIL%' THEN 'COCKTAIL'
+WHEN category_name LIKE '%RUM%' THEN 'RUM'
+WHEN category_name LIKE '% GIN%' THEN 'GIN'
+WHEN category_name LIKE '%BRAND%' THEN 'BRANDY'
+WHEN category_name LIKE '%SCHNAPPS%' THEN 'SCHNAPPS'
+WHEN (category_name LIKE '%WHISK%' OR category_name LIKE '%SCOTCH%' OR category_name LIKE '%BOURBON%') THEN 'WHISKEY'
+WHEN (category_name LIKE '%LIQUEUR%' OR category_name LIKE '%AMARETTO%' OR category_name LIKE '%TRIPLE%' OR category_name LIKE '%CREME%' OR category_name LIKE '%ANISET%' OR category_name LIKE '%ROCK%') THEN 'LIQUEUR'
+ELSE 'OTHER' END AS Liquor_Type
+FROM sales WHERE county = 'Polk') AS liquor_type_table
+GROUP BY liquor_type) AS total_sales_table
+GROUP BY 1,2,3,4
+ORDER BY 5 DESC
+LIMIT 5;
+
+/* Whiskey and vodka still win out by a long shot in the biggest county, Polk, but the sales counts for whiskey and vodka are much closer together than for the state totals, which is very interesting. */
+
+SELECT *, CAST(total_sales as float)/(SELECT SUM(total) FROM sales WHERE county = 'Wayne') AS percent_liquor_revenue
+FROM (SELECT liquor_type, COUNT (*) as sales_count, CAST(AVG(total) as money) as avg_sales, SUM(total) as total_sales
+FROM
+(SELECT *, CASE
+WHEN (category_name LIKE '%BEER' OR category_name LIKE '%ALE%') THEN 'BEER'
+WHEN category_name LIKE '%VODKA%' THEN 'VODKA'
+WHEN category_name LIKE '%TEQUILA%' THEN 'TEQUILA'
+WHEN category_name LIKE '%COCKTAIL%' THEN 'COCKTAIL'
+WHEN category_name LIKE '%RUM%' THEN 'RUM'
+WHEN category_name LIKE '% GIN%' THEN 'GIN'
+WHEN category_name LIKE '%BRAND%' THEN 'BRANDY'
+WHEN category_name LIKE '%SCHNAPPS%' THEN 'SCHNAPPS'
+WHEN (category_name LIKE '%WHISK%' OR category_name LIKE '%SCOTCH%' OR category_name LIKE '%BOURBON%') THEN 'WHISKEY'
+WHEN (category_name LIKE '%LIQUEUR%' OR category_name LIKE '%AMARETTO%' OR category_name LIKE '%TRIPLE%' OR category_name LIKE '%CREME%' OR category_name LIKE '%ANISET%' OR category_name LIKE '%ROCK%') THEN 'LIQUEUR'
+ELSE 'OTHER' END AS Liquor_Type
+FROM sales WHERE county = 'Wayne') AS liquor_type_table
+GROUP BY liquor_type) AS total_sales_table
+GROUP BY 1,2,3,4
+ORDER BY 5 DESC
+LIMIT 5;
+
+/* Wayne County, the second smallest both by population size and revenue share (the sample size for the smallest, Fremont, was too small), broke down roughly in the same order, though the Whiskey proportion was massive (43.3% of sales revenue, vs. 20.5% for vodka).  This made me want to explore the big city vs. small town discrepancy more. */
+
+SELECT *, CAST(total_sales as float)/(SELECT SUM(total) FROM sales WHERE county = 'Polk' OR county = 'Linn' OR county = 'Scott' OR county = 'Johnson' OR county = 'Black Hawk') AS percent_liquor_revenue
+FROM (SELECT liquor_type, COUNT (*) as sales_count, CAST(AVG(total) as money) as avg_sales, SUM(total) as total_sales
+FROM
+(SELECT *, CASE
+WHEN (category_name LIKE '%BEER' OR category_name LIKE '%ALE%') THEN 'BEER'
+WHEN category_name LIKE '%VODKA%' THEN 'VODKA'
+WHEN category_name LIKE '%TEQUILA%' THEN 'TEQUILA'
+WHEN category_name LIKE '%COCKTAIL%' THEN 'COCKTAIL'
+WHEN category_name LIKE '%RUM%' THEN 'RUM'
+WHEN category_name LIKE '% GIN%' THEN 'GIN'
+WHEN category_name LIKE '%BRAND%' THEN 'BRANDY'
+WHEN category_name LIKE '%SCHNAPPS%' THEN 'SCHNAPPS'
+WHEN (category_name LIKE '%WHISK%' OR category_name LIKE '%SCOTCH%' OR category_name LIKE '%BOURBON%') THEN 'WHISKEY'
+WHEN (category_name LIKE '%LIQUEUR%' OR category_name LIKE '%AMARETTO%' OR category_name LIKE '%TRIPLE%' OR category_name LIKE '%CREME%' OR category_name LIKE '%ANISET%' OR category_name LIKE '%ROCK%') THEN 'LIQUEUR'
+ELSE 'OTHER' END AS Liquor_Type
+FROM sales WHERE county = 'Polk' OR county = 'Linn' OR county = 'Scott' OR county = 'Johnson' OR county = 'Black Hawk') AS liquor_type_table
+GROUP BY liquor_type) AS total_sales_table
+GROUP BY 1,2,3,4
+ORDER BY 5 DESC
+LIMIT 5;
+
+/* Most telling table-- in the top 5 counties by sales revenue and population (making up the top 50% of all sales revenue and roughly 35% of the population of the state), there are actually 2041 more vodka sales than whiskey sales, but whiskey brings in $13 million more, and accounts for a 6.7% greater revenue share than vodka. */
+
+SELECT *, CAST(total_sales as float)/(SELECT SUM(total) FROM sales WHERE (county = 'Polk' OR county = 'Linn' OR county = 'Scott' OR county = 'Johnson' OR county = 'Black Hawk') AND date_part('month', date) BETWEEN '1' AND '3') AS percent_liquor_revenue
+FROM (SELECT liquor_type, COUNT (*) as sales_count, CAST(AVG(total) as money) as avg_sales, SUM(total) as total_sales
+FROM
+(SELECT *, CASE
+WHEN (category_name LIKE '%BEER' OR category_name LIKE '%ALE%') THEN 'BEER'
+WHEN category_name LIKE '%VODKA%' THEN 'VODKA'
+WHEN category_name LIKE '%TEQUILA%' THEN 'TEQUILA'
+WHEN category_name LIKE '%COCKTAIL%' THEN 'COCKTAIL'
+WHEN category_name LIKE '%RUM%' THEN 'RUM'
+WHEN category_name LIKE '% GIN%' THEN 'GIN'
+WHEN category_name LIKE '%BRAND%' THEN 'BRANDY'
+WHEN category_name LIKE '%SCHNAPPS%' THEN 'SCHNAPPS'
+WHEN (category_name LIKE '%WHISK%' OR category_name LIKE '%SCOTCH%' OR category_name LIKE '%BOURBON%') THEN 'WHISKEY'
+WHEN (category_name LIKE '%LIQUEUR%' OR category_name LIKE '%AMARETTO%' OR category_name LIKE '%TRIPLE%' OR category_name LIKE '%CREME%' OR category_name LIKE '%ANISET%' OR category_name LIKE '%ROCK%') THEN 'LIQUEUR'
+ELSE 'OTHER' END AS Liquor_Type
+FROM sales WHERE (county = 'Polk' OR county = 'Linn' OR county = 'Scott' OR county = 'Johnson' OR county = 'Black Hawk') AND date_part('month', date) BETWEEN '1' AND '3') AS liquor_type_table
+GROUP BY liquor_type) AS total_sales_table
+GROUP BY 1,2,3,4
+ORDER BY 5 DESC
+LIMIT 5;
+
+SELECT *, CAST(total_sales as float)/(SELECT SUM(total) FROM sales WHERE (county = 'Polk' OR county = 'Linn' OR county = 'Scott' OR county = 'Johnson' OR county = 'Black Hawk') AND date_part('month', date) BETWEEN '6' and '8') AS percent_liquor_revenue
+FROM (SELECT liquor_type, COUNT (*) as sales_count, CAST(AVG(total) as money) as avg_sales, SUM(total) as total_sales
+FROM
+(SELECT *, CASE
+WHEN (category_name LIKE '%BEER' OR category_name LIKE '%ALE%') THEN 'BEER'
+WHEN category_name LIKE '%VODKA%' THEN 'VODKA'
+WHEN category_name LIKE '%TEQUILA%' THEN 'TEQUILA'
+WHEN category_name LIKE '%COCKTAIL%' THEN 'COCKTAIL'
+WHEN category_name LIKE '%RUM%' THEN 'RUM'
+WHEN category_name LIKE '% GIN%' THEN 'GIN'
+WHEN category_name LIKE '%BRAND%' THEN 'BRANDY'
+WHEN category_name LIKE '%SCHNAPPS%' THEN 'SCHNAPPS'
+WHEN (category_name LIKE '%WHISK%' OR category_name LIKE '%SCOTCH%' OR category_name LIKE '%BOURBON%') THEN 'WHISKEY'
+WHEN (category_name LIKE '%LIQUEUR%' OR category_name LIKE '%AMARETTO%' OR category_name LIKE '%TRIPLE%' OR category_name LIKE '%CREME%' OR category_name LIKE '%ANISET%' OR category_name LIKE '%ROCK%') THEN 'LIQUEUR'
+ELSE 'OTHER' END AS Liquor_Type
+FROM sales WHERE (county = 'Polk' OR county = 'Linn' OR county = 'Scott' OR county = 'Johnson' OR county = 'Black Hawk') AND date_part('month', date) BETWEEN '6' and '8') AS liquor_type_table
+GROUP BY liquor_type) AS total_sales_table
+GROUP BY 1,2,3,4
+ORDER BY 5 DESC
+LIMIT 5;
+
+/* This was to test a theory that whiskey would sell better than vodka in the winter (this is for January-March vs. June-August), and sure enough we get more than 6500 more sales of whiskey than vodka in the 3-month winter period, and nearly 7500 more vodka in summer (though whiskey still makes more money!).  Also worth noting that alcohol sales go up significantly in the winter in general. */
+
+SELECT vendor, CAST(COUNT(total) as money) as revenue
+FROM sales
+WHERE (category_name LIKE '%WHISK%' OR category_name LIKE '%SCOTCH%' OR category_name LIKE '%BOURBON%') AND (county = 'Polk' OR county = 'Linn' OR county = 'Scott' OR county = 'Johnson' OR county = 'Black Hawk')
+GROUP BY vendor
+ORDER BY COUNT(total) DESC
+LIMIT 5;
+
+/* Top 5 vendors to partner with in the Top 5 counties (Diageo Americas and Jim Beam Brands clear front-runners).  Ran this for each county, too, and Diaego has the slight edge in Polk, Linn, and Black Hawk counties, while Jim Beam holds the slight advantage in the other two, but they're top 2 in all 5. */
+
+/*******************
+8. FINAL DISCLAIMER
+********************/
+/* Only one of the NULL value issues from before would have affected these results at all, which are the missing county values for several of the stores in the Sales data, since a handful of them are in our Top 5 counties.  I executed the below to figure out how many, and there are 606 sales that aren't accounted for in the above county/sales analysis for the Top 5 counties out of 1,323,903 in those areas, making up .046% of that total.  While that isn't nothing, it certainly isn't significant enough to have affected these results or my recommendation, so they are being left out. */
+
+SELECT new_county, COUNT(*)
+FROM (SELECT *, 
+CASE WHEN store = 5021 THEN 'Dickinson' 
+WHEN (store = 5022 OR store = 5032) THEN 'Polk' 
+WHEN (store = 5023 OR store = 5025 OR store = 5036) THEN 'Linn'
+WHEN store = 5026 THEN 'Grundy' WHEN store = 5027 THEN 'Woodbury' WHEN store = 5028 THEN 'Buena Vista' WHEN store = 5029 THEN 'Scott'
+WHEN (store = 5030 OR store = 5031) THEN 'Black Hawk'
+WHEN store = 5034 THEN 'Cerro Gordo' ELSE county END AS new_county, 
+CASE WHEN store = 5021 THEN '30' 
+WHEN (store = 5022 OR store = 5032) THEN '77' 
+WHEN (store = 5023 OR store = 5025 OR store = 5036) THEN '57'
+WHEN store = 5026 THEN '38' WHEN store = 5027 THEN '97' WHEN store = 5028 THEN '11' WHEN store = 5029 THEN '82'
+WHEN (store = 5030 OR store = 5031) THEN '7'
+WHEN store = 5034 THEN '17' ELSE county_number END
+FROM sales
+WHERE county is NULL) as county_fix
+GROUP BY new_county
+ORDER BY COUNT(*) DESC;
